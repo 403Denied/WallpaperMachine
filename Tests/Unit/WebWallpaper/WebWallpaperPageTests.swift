@@ -364,6 +364,35 @@ final class WebWallpaperPageTests: XCTestCase {
     XCTAssertNil(page.webView.window, "This regression must not open a desktop window")
   }
 
+  func testPageStylesCannotRestoreElementDragSources() async throws {
+    for replacesAdoptedSheets in [false, true] {
+      try """
+        <!doctype html><html><head>
+        <style>
+          #art, #link { -webkit-user-drag: element !important; }
+          @layer page { #box { -webkit-user-drag: element !important; } }
+        </style>
+        <script>
+          if (\(replacesAdoptedSheets)) document.adoptedStyleSheets = [];
+        </script></head><body>
+        <img id="art" alt=""><a id="link" href="#x">link</a><div id="box" draggable="true">box</div>
+        <script>window.__received = {};</script>
+        </body></html>
+        """.write(to: project.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+      let page = WebWallpaperPage(projectURL: project, entryFile: "index.html")
+      page.load()
+      _ = try await poll(page) { _ in true }
+
+      let sources = try await page.webView.callAsyncJavaScript(
+        """
+        return ["art", "link", "box"].filter(id =>
+          getComputedStyle(document.getElementById(id)).getPropertyValue("-webkit-user-drag") !== "none");
+        """, arguments: [:], in: nil, contentWorld: .page) as? [String]
+      XCTAssertEqual(sources, [], "page CSS restored drag sources; replaced sheets: \(replacesAdoptedSheets)")
+      XCTAssertNil(page.webView.window, "This regression must not open a desktop window")
+    }
+  }
+
   func testPointerMoveIntervalFollowsTheFrameLimit() {
     let page = WebWallpaperPage(projectURL: project, entryFile: "index.html")
     XCTAssertEqual(page.pointerMoveInterval, 1.0 / 60, accuracy: 1e-12, "no rate committed yet")
