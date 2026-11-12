@@ -267,8 +267,11 @@ final class WebWallpaperPageTests: XCTestCase {
   }
 
   /// A drag WebKit starts from forwarded events leaves the desktop page as a system drag, which
-  /// dropped a copy of a still image onto Finder's desktop. Every drag source, in the page or a
-  /// frame it embeds, is cancelled before the page's own handlers, which still see the event.
+  /// dropped a copy of a still image onto Finder's desktop. No element, in the page or a frame it
+  /// embeds, is a drag source, and a `dragstart` that still arrives (from a selection) is
+  /// cancelled before the page's own handlers, which still see it. The events dispatched here
+  /// are synthetic and skip WebKit's native drag start, so they check the cancel and the
+  /// handlers; the computed `-webkit-user-drag` checks that WebKit never starts the drag.
   func testNoElementStartsADragEvenInASubframe() async throws {
     try """
       <!doctype html><html><body>
@@ -313,6 +316,51 @@ final class WebWallpaperPageTests: XCTestCase {
     XCTAssertEqual(result["started"] as? [String], [], "these elements could still start a drag")
     XCTAssertEqual(result["sources"] as? [String], [], "these elements are still drag sources")
     XCTAssertEqual(result["seen"] as? Int, 3, "the page's own dragstart handler must still run")
+    XCTAssertNil(page.webView.window, "This regression must not open a desktop window")
+  }
+
+  /// A page that sets up its styles by assigning `document.adoptedStyleSheets = [its own]`
+  /// drops every sheet adopted before it. Its images and links must still be no drag source,
+  /// or WebKit empties Finder's drag pasteboard again when an icon is dragged over them.
+  func testElementsStayNoDragSourceWhenThePageReplacesItsAdoptedSheets() async throws {
+    let replace = """
+      const own = new CSSStyleSheet(); own.replaceSync('img { display: block; }');
+      document.adoptedStyleSheets = [own];
+      """
+    try """
+      <!doctype html><html><head><script>\(replace)</script></head><body>
+      <img id="art" alt=""><a id="link" href="#x">link</a><div id="box" draggable="true">box</div>
+      <iframe id="frame" srcdoc="<!doctype html><html><head><script>\(replace)</script></head><body><img id='art' alt=''></body></html>"></iframe>
+      <script>window.__received = {};</script>
+      </body></html>
+      """.write(to: project.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+    let page = WebWallpaperPage(projectURL: project, entryFile: "index.html")
+    page.load()
+    _ = try await poll(page) { _ in true }
+
+    let deadline = Date().addingTimeInterval(10)
+    var result: [String: Any] = [:]
+    while Date() < deadline {
+      let value = try await page.webView.callAsyncJavaScript(
+          """
+          const frame = document.getElementById("frame").contentDocument;
+          if (frame.readyState !== "complete" || !frame.getElementById("art")) return { ready: false };
+          return {
+            ready: true,
+            adopted: [document.adoptedStyleSheets.length, frame.adoptedStyleSheets.length],
+            sources: ["art", "link", "box"].map(id => document.getElementById(id))
+              .concat([frame.getElementById("art")])
+              .filter(element => getComputedStyle(element).getPropertyValue("-webkit-user-drag") !== "none")
+              .map(element => element.id || element.tagName),
+          };
+          """, arguments: [:], in: nil, contentWorld: .page)
+      result = try XCTUnwrap(value as? [String: Any])
+      if result["ready"] as? Bool == true { break }
+      try await Task.sleep(for: .milliseconds(50))
+    }
+    XCTAssertEqual(result["ready"] as? Bool, true, "\(result)")
+    XCTAssertEqual(result["adopted"] as? [Int], [1, 1], "the page must have replaced the adopted sheets")
+    XCTAssertEqual(result["sources"] as? [String], [], "these elements are drag sources again")
     XCTAssertNil(page.webView.window, "This regression must not open a desktop window")
   }
 

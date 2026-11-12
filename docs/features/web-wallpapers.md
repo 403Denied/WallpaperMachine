@@ -477,16 +477,25 @@ property name of 1 to 256.
   running WebKit responds to them, and `WebWallpaperWindow` reports `isKeyWindow` as
   true because WebKit hit-tests hover only for active windows (it still cannot
   become key, so keyboard focus is never taken). The host script cancels
-  `contextmenu` defaults so WebKit's own menu never opens, and every frame of every
-  web surface cancels `dragstart` (`WebWallpaperProtocol.noDragScript`): the events
-  belong to Finder, so a drag WebKit started from an image, link or selection would
-  drop a copy onto the desktop and break Finder's selection rectangle. The page's
-  own handlers still see the event, and mouse-driven dragging inside a page is
-  unaffected. The same script adopts a sheet that sets `-webkit-user-drag: none`
-  on every element: WebKit empties the system drag pasteboard before it fires
-  `dragstart`, so a press on a Finder icon over a page image used to wipe the
-  icon's file from Finder's own drag, and the icon could not be dropped anywhere.
-  With no element a drag source, WebKit never prepares a drag at all.
+  `contextmenu` defaults so WebKit's own menu never opens, and a page never starts
+  a drag (`WebWallpaperProtocol.noDragScript`, in every frame of every web
+  surface): the events belong to Finder, so a drag WebKit started from an image,
+  link or selection would drop a copy onto the desktop and break Finder's
+  selection rectangle. The script sets `-webkit-user-drag: none` on every element,
+  both in an adopted sheet and in a `<style>` element on the root, so a page that
+  assigns `document.adoptedStyleSheets` to its own sheets keeps the rule. No image,
+  link or `draggable` element is then a drag source, so WebKit never prepares a
+  drag from one. This matters beyond the copy: WebKit empties the system drag
+  pasteboard before it fires `dragstart`, so a press on a Finder icon over a page
+  image used to wipe the icon's file from Finder's own drag, and the icon could
+  not be dropped anywhere. Cancelling `dragstart` alone came too late for that.
+  Pages therefore receive no `dragstart` (nor the other HTML drag-and-drop events)
+  from those elements; mouse-driven dragging built on `mousedown`, `mousemove` and
+  `mouseup` or pointer events is unaffected. A drag from a text selection the page
+  already has is the one drag WebKit can still begin: the script cancels its
+  `dragstart` in the capture phase before any handler of the page's, which still
+  sees the event, but WebKit has already emptied the pasteboard by then, so a
+  Finder icon dragged from inside such a selection still cannot be dropped.
   Moves are paced per window by `WebWallpaperMoveThrottle`, because a 1000 Hz mouse
   otherwise costs the main thread a rebuilt event and a WebKit hit test per report.
   The first move after a quiet stretch is delivered at once, moves inside the interval

@@ -55,14 +55,27 @@ extension WebWallpaperProtocol {
     /// pasteboard, so the icon could not be dropped anywhere: not moved on the
     /// desktop, into a folder or onto the Trash. With `-webkit-user-drag: none` on
     /// every element, no image, link or `draggable` element is a drag source, so
-    /// WebKit never prepares a drag and never touches the pasteboard. The sheet is
-    /// adopted rather than put in the document, so the page's DOM is unchanged.
+    /// WebKit never prepares a drag and never touches the pasteboard. The page then gets
+    /// no `dragstart` from those elements; only a drag from a text selection still
+    /// reaches the cancel above, after WebKit has already emptied the pasteboard.
+    ///
+    /// The rule is installed twice, because a page can drop either copy in the
+    /// ordinary course of setting up its own styles: an adopted sheet, which a page
+    /// assigning `document.adoptedStyleSheets = [its own]` replaces, and a `<style>`
+    /// element on the root, which that assignment does not touch. Only a page that
+    /// both replaces its adopted sheets and removes the element loses the guard.
     static let noDragScript = """
     window.addEventListener("dragstart", event => event.preventDefault(), true);
     (() => {
+      const rule = "* { -webkit-user-drag: none !important; }";
       const sheet = new CSSStyleSheet();
-      sheet.replaceSync("* { -webkit-user-drag: none !important; }");
+      sheet.replaceSync(rule);
       document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+      const root = document.documentElement;
+      if (!root) return;
+      const style = document.createElementNS("http://www.w3.org/1999/xhtml", "style");
+      style.textContent = rule;
+      root.appendChild(style);
     })();
     """
 }
