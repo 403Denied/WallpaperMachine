@@ -297,6 +297,12 @@ final class WebWallpaperPageTests: XCTestCase {
             started: ["art", "link", "box"].filter(id => drag(document.getElementById(id)))
               .concat(drag(frame.getElementById("art")) ? ["frame art"] : []),
             seen: window.__received.seen,
+            // WebKit empties the system drag pasteboard before `dragstart` for any element it
+            // can drag, which took the file out of a Finder icon drag that began over the page.
+            sources: ["art", "link", "box"].map(id => document.getElementById(id))
+              .concat([frame.getElementById("art")])
+              .filter(element => getComputedStyle(element).getPropertyValue("-webkit-user-drag") !== "none")
+              .map(element => element.id || element.tagName),
           };
           """, arguments: [:], in: nil, contentWorld: .page)
       result = try XCTUnwrap(value as? [String: Any])
@@ -305,6 +311,7 @@ final class WebWallpaperPageTests: XCTestCase {
     }
     XCTAssertEqual(result["ready"] as? Bool, true, "\(result)")
     XCTAssertEqual(result["started"] as? [String], [], "these elements could still start a drag")
+    XCTAssertEqual(result["sources"] as? [String], [], "these elements are still drag sources")
     XCTAssertEqual(result["seen"] as? Int, 3, "the page's own dragstart handler must still run")
     XCTAssertNil(page.webView.window, "This regression must not open a desktop window")
   }

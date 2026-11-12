@@ -47,7 +47,22 @@ extension WebWallpaperProtocol {
     /// onto the desktop and broke Finder's selection rectangle. Cancelling
     /// `dragstart` before any handler of the page's keeps WebKit from opening the
     /// system drag; the mouse events themselves still reach the page.
+    ///
+    /// Cancelling alone comes too late: before WebKit fires `dragstart` it empties
+    /// the system drag pasteboard for the drag it is about to start. Pressing a
+    /// Finder icon over an image of the page and moving it starts Finder's drag and,
+    /// a moment later, WebKit's attempt, which wiped the icon's file from the
+    /// pasteboard, so the icon could not be dropped anywhere: not moved on the
+    /// desktop, into a folder or onto the Trash. With `-webkit-user-drag: none` on
+    /// every element, no image, link or `draggable` element is a drag source, so
+    /// WebKit never prepares a drag and never touches the pasteboard. The sheet is
+    /// adopted rather than put in the document, so the page's DOM is unchanged.
     static let noDragScript = """
     window.addEventListener("dragstart", event => event.preventDefault(), true);
+    (() => {
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync("* { -webkit-user-drag: none !important; }");
+      document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+    })();
     """
 }

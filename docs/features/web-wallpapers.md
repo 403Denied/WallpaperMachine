@@ -482,7 +482,11 @@ property name of 1 to 256.
   belong to Finder, so a drag WebKit started from an image, link or selection would
   drop a copy onto the desktop and break Finder's selection rectangle. The page's
   own handlers still see the event, and mouse-driven dragging inside a page is
-  unaffected.
+  unaffected. The same script adopts a sheet that sets `-webkit-user-drag: none`
+  on every element: WebKit empties the system drag pasteboard before it fires
+  `dragstart`, so a press on a Finder icon over a page image used to wipe the
+  icon's file from Finder's own drag, and the icon could not be dropped anywhere.
+  With no element a drag source, WebKit never prepares a drag at all.
   Moves are paced per window by `WebWallpaperMoveThrottle`, because a 1000 Hz mouse
   otherwise costs the main thread a rebuilt event and a WebKit hit test per report.
   The first move after a quiet stretch is delivered at once, moves inside the interval
